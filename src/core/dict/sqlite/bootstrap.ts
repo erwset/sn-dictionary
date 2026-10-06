@@ -20,6 +20,7 @@ import {
   CREATE_USER_ENTRIES_TABLE,
   CREATE_USER_ENTRIES_INDEX,
   ALTER_USER_ENTRIES_ADD_PHONETIC,
+  CREATE_LOOKUPS_TABLE,
   isStaleImport,
   SELECT_IMPORT_ALL,
   type ImportRow,
@@ -294,6 +295,8 @@ export const bootstrap = async (
     // idempotent like the imports table; a throw here degrades user.db
     // to null below (F1-AC4) — base.db still works.
     await ensureSettingsTables(userDb);
+    // Lookup history (ADR-0011) — additive + idempotent like the above.
+    await userDb.run(CREATE_LOOKUPS_TABLE);
   } catch (e) {
     logger?.warn(
       `[bootstrap] user.db unavailable (${(e as Error).message}) — degrading: imports + user words disabled, base works`,

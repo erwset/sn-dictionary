@@ -66,13 +66,19 @@ By design, **the plugin is pure read** — it never modifies the page, never del
 
 Lookup is ready in well under a second after the plugin process spins up — the native SQLite engine just opens the prebuilt `base.db` (no parse, no in-memory index build), and every lookup is a single indexed `SELECT`. (Measured ~250 ms to Lookup-ready on a note re-open; ADR-0007.)
 
+**Lookup history.** Like Kindle's Vocabulary Builder, every DOC lookup is saved to the `lookups` table in `user.db`: the selected text, the sentence it appeared in, the document file name, and a timestamp. To pull it onto a computer (e.g. to make flashcards), use **Settings → Backup → Export**, connect over USB, and read the exported `user.db`:
+
+```sh
+sqlite3 user.db "SELECT word, usage, book, timestamp FROM lookups ORDER BY timestamp"
+```
+
 ## Settings
 
 Tap the **gear (⚙)** in the top-right of any lookup popup to open Settings. Edits are staged locally and only written when you tap **Save** (a "Settings saved" line confirms); **Back** returns to the definition.
 
 - **Dictionaries** — every active source (the bundled WordNet, your saved words, and each imported dict) shows with a checkbox. Tap a row to enable/disable it; disabled sources are skipped on lookup (turning them all off warns you). With two or more dictionaries the **↑ / ↓** arrows reorder precedence — results appear in this order, so move the dictionary you want first to the top. An imported dictionary also has a **Remove** button: it confirms (naming the dictionary), then deletes its database and any leftover source files. If a source file can't be deleted, you're warned the dict may reappear on the next reload.
 - **Import sources** — the **Keep source files after import** toggle decides whether the files you dropped in `MyStyle/SnDict/` are kept after the dictionary is built, or deleted once the import is verified (default: keep). The same choice is offered once, the first time you import.
-- **Backup** — **Export** copies the bundled `base.db`, your `user.db` (saved words + settings), and every imported dictionary to a folder you choose under `MyStyle/`. **Restore** copies those DBs back over the live ones — reopen the plugin afterwards to finish. `base.db` is included in an export but is never overwritten on restore (it ships with the plugin).
+- **Backup** — **Export** copies the bundled `base.db`, your `user.db` (saved words, lookup history + settings), and every imported dictionary to a folder you choose under `MyStyle/`. **Restore** copies those DBs back over the live ones — reopen the plugin afterwards to finish. `base.db` is included in an export but is never overwritten on restore (it ships with the plugin).
 - **Copy** — in the definition popup, the **Copy** button puts the headword plus the current tab's text (definition or thesaurus) on the device's system clipboard for pasting into other apps. Pasting into handwritten notes isn't supported — the firmware's note-element clipboard isn't exposed to plugins.
 
 ## Adding your own dictionary

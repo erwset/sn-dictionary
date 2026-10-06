@@ -1007,6 +1007,14 @@ describe('bootstrap — settings tables (F1, ADR-0009)', () => {
       expect.arrayContaining(['dict_prefs', 'app_settings', 'user_meta']),
     );
   });
+
+  it('creates the lookups history table on a healthy user.db (ADR-0011)', async () => {
+    const h = await makeHarness({});
+    await bootstrap(h.ports);
+    expect(await tableNames(h.userDb)).toEqual(
+      expect.arrayContaining(['lookups']),
+    );
+  });
 });
 
 // --- F3: allSources + derived live `sources` + dict-manager seam -----

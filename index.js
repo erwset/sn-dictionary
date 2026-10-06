@@ -47,6 +47,7 @@ import {openRnSqliteDb} from './src/core/dict/sqlite/rnSqliteDb';
 import {discoverUserDicts} from './src/core/dict/userDictDiscovery';
 import {lookupThesaurus} from './src/core/dict/sqlite/thesaurusLookup';
 import {addUserEntry} from './src/core/dict/sqlite/userEntries';
+import {recordLookup} from './src/core/dict/sqlite/lookupHistory';
 import {
   getKeepSources,
   setKeepSources,
@@ -178,7 +179,7 @@ const resolveSlugDbPath = filename => joinPath(PLUGIN_LOCATION, filename);
 // live, rather than blocking the resolve). So runtime.lookup is set
 // quickly after enableButtons, instead of only after every import
 // finishes — closing the long null-lookup window.
-const runtime = {lookup: null};
+const runtime = {lookup: null, userDb: null};
 
 // --- buttons: register FIRST, then enable after registration ---------
 // The "Plugin button is not exists!" race was setButtonState firing
@@ -203,6 +204,11 @@ const docHandlerDeps = {
   lookup: {lookup: (...args) => runtime.lookup.lookup(...args)},
   // Doc-select text is already exact — no OCR field (editable omitted).
   showResult: showDefinition,
+  recordLookup: word =>
+    recordLookup(
+      {db: runtime.userDb, comm: PluginCommAPI, doc: PluginDocAPI, logger},
+      word,
+    ),
   logger,
 };
 
@@ -395,6 +401,7 @@ const bootstrapPorts = {
 bootstrap(bootstrapPorts, logger)
   .then(handle => {
     runtime.lookup = handle.lookup;
+    runtime.userDb = handle.userDb;
 
     // Register the popup actions (Designer ruling 1/2): the popup calls
     // these without importing the engine. Source->lang resolution + the
