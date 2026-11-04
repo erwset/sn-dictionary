@@ -60,31 +60,64 @@ export type LookupHistoryDeps = {
   };
   logger: Logger;
   now?: () => string;
+  contextTimeoutMs?: number;
 };
 
-const orNull = <T>(p: Promise<T>): Promise<T | null> => p.catch(() => null);
+// Context SDK calls can hang forever (or throw synchronously) instead of
+// rejecting, so each gets a deadline and degrades to null — the word is
+// still recorded, just without that piece of context.
+const context = async <T>(
+  name: string,
+  call: () => Promise<APIResponse<T>>,
+  timeoutMs: number,
+  logger: Logger,
+): Promise<T | null> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(call).then(r => unwrap(r, name)),
+      deadline,
+    ]);
+  } catch (e) {
+    logger.log(`[history] ${name} unavailable: ${(e as Error).message}`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 export const recordLookup = async (
   deps: LookupHistoryDeps,
   word: string,
 ): Promise<void> => {
-  const {openDb, comm, doc, logger, now = () => new Date().toISOString()} =
-    deps;
+  const {
+    openDb,
+    comm,
+    doc,
+    logger,
+    now = () => new Date().toISOString(),
+    contextTimeoutMs = 3000,
+  } = deps;
+  const ctx = <T>(name: string, call: () => Promise<APIResponse<T>>) =>
+    context(name, call, contextTimeoutMs, logger);
+  logger.log(`[history] recording "${word}"`);
   try {
     const [path, page] = await Promise.all([
-      orNull(comm.getCurrentFilePath().then(r => unwrap(r, 'getCurrentFilePath'))),
-      orNull(comm.getCurrentPageNum().then(r => unwrap(r, 'getCurrentPageNum'))),
+      ctx('getCurrentFilePath', () => comm.getCurrentFilePath()),
+      ctx('getCurrentPageNum', () => comm.getCurrentPageNum()),
     ]);
     const pageText =
       page === null
         ? null
-        : await orNull(
-            doc.getCurrentDocText(page).then(r => unwrap(r, 'getCurrentDocText')),
-          );
+        : await ctx('getCurrentDocText', () => doc.getCurrentDocText(page));
     const usage = pageText === null ? null : sentenceAround(pageText, word);
     const book = path === null ? null : path.slice(path.lastIndexOf('/') + 1);
     const db = await openDb();
     if (db === null) {
+      logger.log('[history] vocab.db unavailable — lookup not saved');
       return;
     }
     try {
@@ -93,6 +126,9 @@ export const recordLookup = async (
     } finally {
       await db.close();
     }
+    logger.log(
+      `[history] saved "${word}" (page=${page}, usage=${usage !== null}, book=${book})`,
+    );
   } catch (e) {
     logger.warn(`[history] lookup not saved: ${(e as Error).message}`);
   }

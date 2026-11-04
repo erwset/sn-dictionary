@@ -140,10 +140,34 @@ describe('recordLookup', () => {
     expect((await rows()).map(r => r.usage)).toEqual([null, null]);
   });
 
-  it('is a silent no-op when vocab.db is unavailable (e.g. no permission)', async () => {
+  it('is a logged no-op when vocab.db is unavailable (e.g. no permission)', async () => {
     const deps = buildDeps({openDb: async () => null});
     await expect(recordLookup(deps, 'jeer')).resolves.toBeUndefined();
     expect(deps.logger.warn).not.toHaveBeenCalled();
+    expect(deps.logger.log).toHaveBeenCalledWith(expect.stringContaining('unavailable'));
+  });
+
+  it('records the word anyway when a context call hangs or throws synchronously', async () => {
+    const deps = buildDeps({
+      contextTimeoutMs: 20,
+      comm: {
+        getCurrentFilePath: jest.fn(() => new Promise<never>(() => {})),
+        getCurrentPageNum: jest.fn(() => {
+          throw new Error('sync boom');
+        }),
+      },
+    });
+    await recordLookup(deps, 'jeer');
+    expect(await rows()).toEqual([
+      {word: 'jeer', usage: null, book: null, timestamp: '2026-10-06T12:00:00.000Z'},
+    ]);
+    expect(deps.logger.log).toHaveBeenCalledWith(
+      '[history] getCurrentFilePath unavailable: timed out',
+    );
+    expect(deps.logger.log).toHaveBeenCalledWith(
+      '[history] getCurrentPageNum unavailable: sync boom',
+    );
+    expect(deps.doc.getCurrentDocText).not.toHaveBeenCalled();
   });
 
   it('never rejects: a failed open only logs a warning', async () => {
