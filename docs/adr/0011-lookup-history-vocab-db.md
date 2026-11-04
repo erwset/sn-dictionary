@@ -23,7 +23,8 @@ Mechanics:
 
 - **Location.** `EXPORT` is one of the six shared-storage dirs Chauvet lets a plugin write with `FILE:WRITE`; it is where users already look for files produced on the device, and it is not scanned by dictionary discovery (`MyStyle/SnDict/`). The vendored `SQLitePlugin.java` gains one branch: a `location` starting with `/` is used as an absolute directory (everything else still resolves under the plugin's files dir).
 - **Permissions.** Touching shared storage without a grant kills the plugin, so the opener only *checks* `FILE:READ/WRITE/DELETE` (requested at launch by the existing discovery path) and returns null when any is missing — no dialog mid-lookup. DELETE is included because SQLite unlinks its journal/WAL files.
-- **Open per write.** Each lookup opens vocab.db, creates the table if needed, inserts, and closes. No handle is held between lookups, so a user deleting or replacing the file (after importing it on a computer) cannot swallow later rows, and closing folds any WAL back so only `vocab.db` sits in the folder. Writes are queued in `index.js` so two quick lookups never open it concurrently.
+- **Open per write.** Each lookup opens vocab.db, switches the connection to `journal_mode=DELETE` (Android's default TRUNCATE leaves an empty `vocab.db-journal` beside the user-visible file), creates the table if needed, inserts, and closes. No handle is held between lookups, so a user deleting or replacing the file (after importing it on a computer) cannot swallow later rows. Writes are queued in `index.js` so two quick lookups never open it concurrently.
+- **Context with a deadline.** `getCurrentFilePath`, `getCurrentPageNum` and `getCurrentDocText` each get a 3 s timeout (a synchronous throw is caught too) and degrade to NULL, so a stalled SDK call can never block the write queue; the word is always recorded.
 - **Best-effort.** `recordLookup` never rejects: missing context is stored as NULL, a failed open/INSERT only logs. The DOC handler fires it after the final `showResult` without awaiting it, so the popup and the reentrancy guard are untouched.
 
 ## Considered Options
@@ -39,4 +40,4 @@ Mechanics:
 
 - One small row per DOC lookup in `EXPORT/SnDict/vocab.db`; nothing prunes it. Deleting the file resets the history (it is recreated on the next lookup).
 - vocab.db is not part of Settings → Export/Restore (it is already user-visible).
-- Device-verify: the file shows up over USB (MTP) with its current size, and `usage` is filled (page index base of `getCurrentDocText` matches `getCurrentPageNum`).
+- Device-verified on Chauvet 3.29 beta: vocab.db is created in `EXPORT/SnDict/`, `usage` is filled (the page index from `getCurrentPageNum` is the one `getCurrentDocText` expects), and the plugin keeps appending after the file was replaced from a computer over ADB.
