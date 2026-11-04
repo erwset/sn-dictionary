@@ -1,16 +1,21 @@
 // Lookup history (ADR-0011). Records every DOC lookup Kindle-vocab.db
 // style — the selected word, the sentence it sat in, the document it
-// came from — into user.db's `lookups` table, so an exported user.db
-// can feed a flashcard pipeline.
+// came from — into the `lookups` table of a standalone vocab.db that
+// lives in shared storage, so it can be read straight over USB to feed
+// a flashcard pipeline.
+//
+// The DB is opened, written and closed per lookup: no handle is held
+// between lookups (a user deleting the file can't swallow later rows,
+// and closing folds any WAL back so only vocab.db is left on disk).
 //
 // Best-effort by design: any missing context piece is stored as NULL,
-// and recordLookup NEVER rejects (a failed INSERT only logs), so history
-// can't break or delay the define flow that fires it.
+// and recordLookup NEVER rejects (a failed open/INSERT only logs), so
+// history can't break or delay the define flow that fires it.
 
 import type {APIResponse, Logger} from '../../../sdk/types';
 import {unwrap} from '../../../sdk/unwrap';
-import type {SqliteDb} from './db';
-import {INSERT_LOOKUP} from './schema';
+import type {OpenSqliteDb} from './db';
+import {CREATE_LOOKUPS_TABLE, INSERT_LOOKUP} from './schema';
 
 // Max chars kept on each side of the word when no sentence end is near
 // (PDF tables, unpunctuated text).
@@ -43,7 +48,9 @@ export const sentenceAround = (
 };
 
 export type LookupHistoryDeps = {
-  db: SqliteDb | null;
+  // Opens (creating if needed) vocab.db; null = unavailable (e.g. no
+  // file permission), which makes the lookup a silent no-op.
+  openDb: OpenSqliteDb;
   comm: {
     getCurrentFilePath: () => Promise<APIResponse<string>>;
     getCurrentPageNum: () => Promise<APIResponse<number>>;
@@ -61,10 +68,8 @@ export const recordLookup = async (
   deps: LookupHistoryDeps,
   word: string,
 ): Promise<void> => {
-  const {db, comm, doc, logger, now = () => new Date().toISOString()} = deps;
-  if (db === null) {
-    return;
-  }
+  const {openDb, comm, doc, logger, now = () => new Date().toISOString()} =
+    deps;
   try {
     const [path, page] = await Promise.all([
       orNull(comm.getCurrentFilePath().then(r => unwrap(r, 'getCurrentFilePath'))),
@@ -78,7 +83,16 @@ export const recordLookup = async (
           );
     const usage = pageText === null ? null : sentenceAround(pageText, word);
     const book = path === null ? null : path.slice(path.lastIndexOf('/') + 1);
-    await db.run(INSERT_LOOKUP, [word, usage, book, now()]);
+    const db = await openDb();
+    if (db === null) {
+      return;
+    }
+    try {
+      await db.run(CREATE_LOOKUPS_TABLE);
+      await db.run(INSERT_LOOKUP, [word, usage, book, now()]);
+    } finally {
+      await db.close();
+    }
   } catch (e) {
     logger.warn(`[history] lookup not saved: ${(e as Error).message}`);
   }

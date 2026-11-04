@@ -73,10 +73,11 @@ export const INSERT_USER_ENTRY =
   'INSERT INTO entries (key, word, definition, format, lang, created_at) ' +
   'VALUES (?, ?, ?, ?, ?, ?)';
 
-// --- user.db lookup history (ADR-0011) --------------------------------
+// --- vocab.db lookup history (ADR-0011) -------------------------------
 // One row per DOC lookup, Kindle-vocab.db style: the selected text, the
 // sentence it sat in (usage), the document it came from (book) and when.
-// Lives in user.db so the existing Export/Restore carries it for free.
+// Lives in its own vocab.db in shared storage (EXPORT/SnDict/), readable
+// over USB without an export step.
 export const CREATE_LOOKUPS_TABLE =
   'CREATE TABLE IF NOT EXISTS lookups (' +
   'word TEXT NOT NULL, usage TEXT, book TEXT, timestamp TEXT NOT NULL)';

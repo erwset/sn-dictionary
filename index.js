@@ -173,13 +173,30 @@ const openDbByName = name => openRnSqliteDb({name, location: PLUGIN_LOCATION});
 // builds. joinPath is the shared, host-tested join from exportDbs.
 const resolveSlugDbPath = filename => joinPath(PLUGIN_LOCATION, filename);
 
+// Lookup history (ADR-0011): a standalone vocab.db in shared storage so it
+// can be read straight over USB. EXPORT is one of the six Chauvet-permitted
+// dirs; the absolute location is honoured by the vendored SQLitePlugin.java.
+// Touching shared storage without the grant kills the plugin, so check
+// (never request — no dialog mid-lookup) and skip when not granted. SQLite
+// also unlinks its journal/WAL files, hence DELETE too.
+const HISTORY_LOCATION = '/storage/emulated/0/EXPORT/SnDict/';
+const openHistoryDb = async () => {
+  for (const perm of [FILE_READ_PERM, FILE_WRITE_PERM, FILE_DELETE_PERM]) {
+    if ((await probePerm('has', perm)) <= 0) {
+      return null;
+    }
+  }
+  return openRnSqliteDb({name: 'vocab.db', location: HISTORY_LOCATION})();
+};
+let historyQueue = Promise.resolve();
+
 // Captured by the handlers; set when bootstrap resolves — which is NOW
 // fast: bootstrap returns as soon as base + user + already-imported are
 // ready (sideload imports run DETACHED and splice into handle.sources
 // live, rather than blocking the resolve). So runtime.lookup is set
 // quickly after enableButtons, instead of only after every import
 // finishes — closing the long null-lookup window.
-const runtime = {lookup: null, userDb: null};
+const runtime = {lookup: null};
 
 // --- buttons: register FIRST, then enable after registration ---------
 // The "Plugin button is not exists!" race was setButtonState firing
@@ -204,11 +221,15 @@ const docHandlerDeps = {
   lookup: {lookup: (...args) => runtime.lookup.lookup(...args)},
   // Doc-select text is already exact — no OCR field (editable omitted).
   showResult: showDefinition,
+  // Queued so a quick second lookup never opens vocab.db while the
+  // previous write still holds it (recordLookup never rejects).
   recordLookup: word =>
-    recordLookup(
-      {db: runtime.userDb, comm: PluginCommAPI, doc: PluginDocAPI, logger},
-      word,
-    ),
+    (historyQueue = historyQueue.then(() =>
+      recordLookup(
+        {openDb: openHistoryDb, comm: PluginCommAPI, doc: PluginDocAPI, logger},
+        word,
+      ),
+    )),
   logger,
 };
 
@@ -401,7 +422,6 @@ const bootstrapPorts = {
 bootstrap(bootstrapPorts, logger)
   .then(handle => {
     runtime.lookup = handle.lookup;
-    runtime.userDb = handle.userDb;
 
     // Register the popup actions (Designer ruling 1/2): the popup calls
     // these without importing the engine. Source->lang resolution + the
