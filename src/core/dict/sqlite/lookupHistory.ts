@@ -15,7 +15,11 @@
 import type {APIResponse, Logger} from '../../../sdk/types';
 import {unwrap} from '../../../sdk/unwrap';
 import type {OpenSqliteDb} from './db';
-import {CREATE_LOOKUPS_TABLE, INSERT_LOOKUP} from './schema';
+import {
+  CREATE_LOOKUPS_TABLE,
+  INSERT_LOOKUP,
+  LOOKUPS_JOURNAL_MODE,
+} from './schema';
 
 // Max chars kept on each side of the word when no sentence end is near
 // (PDF tables, unpunctuated text).
@@ -103,7 +107,6 @@ export const recordLookup = async (
   } = deps;
   const ctx = <T>(name: string, call: () => Promise<APIResponse<T>>) =>
     context(name, call, contextTimeoutMs, logger);
-  logger.log(`[history] recording "${word}"`);
   try {
     const [path, page] = await Promise.all([
       ctx('getCurrentFilePath', () => comm.getCurrentFilePath()),
@@ -121,6 +124,7 @@ export const recordLookup = async (
       return;
     }
     try {
+      await db.run(LOOKUPS_JOURNAL_MODE);
       await db.run(CREATE_LOOKUPS_TABLE);
       await db.run(INSERT_LOOKUP, [word, usage, book, now()]);
     } finally {

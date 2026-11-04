@@ -85,6 +85,11 @@ export const CREATE_LOOKUPS_TABLE =
 export const INSERT_LOOKUP =
   'INSERT INTO lookups (word, usage, book, timestamp) VALUES (?, ?, ?, ?)';
 
+// Android opens DBs in TRUNCATE journal mode, which leaves an empty
+// vocab.db-journal next to the user-visible file; DELETE removes it after
+// every write. Per-connection, so it runs on each open.
+export const LOOKUPS_JOURNAL_MODE = 'PRAGMA journal_mode=DELETE';
+
 // First row wins (TF2-FR4): LIMIT 1 so a duplicate-key table returns
 // one deterministic row. `key` is bound, never selected. Projects the
 // v3 `phonetic` column; selectByKey falls back to the 4-col SELECT for

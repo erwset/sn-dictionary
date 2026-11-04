@@ -1,6 +1,6 @@
 // Lookup history (ADR-0011): sentence extraction + best-effort persistence.
 
-import {mkdtempSync, rmSync} from 'node:fs';
+import {existsSync, mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openBetterSqliteDb} from './_helpers/betterSqliteDb';
@@ -94,6 +94,23 @@ describe('recordLookup', () => {
         timestamp: '2026-10-06T12:00:00.000Z',
       },
     ]);
+  });
+
+  it('switches to DELETE journal mode so no -journal file is left beside vocab.db', async () => {
+    const run = jest.fn();
+    const spying: OpenSqliteDb = async () => {
+      const db = (await openDb()) as SqliteDb;
+      return {
+        ...db,
+        run: async (sql, params) => {
+          run(sql);
+          return db.run(sql, params);
+        },
+      };
+    };
+    await recordLookup(buildDeps({openDb: spying}), 'jeer');
+    expect(run.mock.calls[0][0]).toBe('PRAGMA journal_mode=DELETE');
+    expect(existsSync(join(dir, 'vocab.db-journal'))).toBe(false);
   });
 
   it('appends across reopens and closes the DB after each write', async () => {
